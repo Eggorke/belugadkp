@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BELUGA DKP</title>
+
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            wow: {
+              gold:   "#ffd100",
+              brown:  "#1a120b",
+              panel:  "#1e1a14",
+              border: "#5c4a1e",
+              hover:  "#2e2618",
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Firebase SDK (compat v10) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <style>
+    body { background-color: #0f0d09; color: #e8d5a3; font-family: 'Segoe UI', sans-serif; }
+    th { cursor: pointer; user-select: none; }
+    th:hover { color: #ffd100; }
+    th .sort-icon { margin-left: 4px; opacity: 0.4; }
+    th.sorted .sort-icon { opacity: 1; color: #ffd100; }
+
+    /* WoW class colours */
+    .cls-warrior     { color: #c79c6e; }
+    .cls-paladin     { color: #f58cba; }
+    .cls-hunter      { color: #abd473; }
+    .cls-rogue       { color: #fff569; }
+    .cls-priest      { color: #ffffff; }
+    .cls-shaman      { color: #0070de; }
+    .cls-mage        { color: #69ccf0; }
+    .cls-warlock     { color: #9482c9; }
+    .cls-druid       { color: #ff7d0a; }
+    .cls-deathknight { color: #c41f3b; }
+  </style>
+</head>
+<body class="min-h-screen p-4">
+
+  <!-- Header -->
+  <div class="max-w-5xl mx-auto">
+    <div class="flex items-center gap-4 mb-6">
+      <div>
+        <h1 class="text-3xl font-bold text-wow-gold tracking-wide">BELUGA DKP</h1>
+        <p id="last-scan" class="text-sm text-yellow-600 mt-1">Loading…</p>
+      </div>
+      <div class="ml-auto">
+        <label class="text-xs text-yellow-700 block mb-1">Snapshot</label>
+        <select id="snapshot-select"
+          class="bg-wow-panel border border-wow-border text-yellow-200 rounded px-3 py-1.5 text-sm focus:outline-none">
+          <option value="">Loading…</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Stats bar -->
+    <div class="grid grid-cols-2 gap-4 mb-6" id="stats-bar">
+      <div class="bg-wow-panel border border-wow-border rounded-lg p-4 text-center">
+        <div id="stat-total" class="text-2xl font-bold text-wow-gold">—</div>
+        <div class="text-xs text-yellow-700 mt-1">Members</div>
+      </div>
+      <div class="bg-wow-panel border border-wow-border rounded-lg p-4 text-center">
+        <div id="stat-with-dkp" class="text-2xl font-bold text-wow-gold">—</div>
+        <div class="text-xs text-yellow-700 mt-1">With DKP</div>
+      </div>
+    </div>
+
+    <!-- Search + filter -->
+    <div class="flex gap-3 mb-4">
+      <input id="search" type="text" placeholder="Search member…"
+        class="bg-wow-panel border border-wow-border text-yellow-200 rounded px-3 py-1.5 text-sm flex-1 focus:outline-none focus:border-wow-gold" />
+      <select id="class-filter"
+        class="bg-wow-panel border border-wow-border text-yellow-200 rounded px-3 py-1.5 text-sm focus:outline-none">
+        <option value="">All classes</option>
+      </select>
+    </div>
+
+    <!-- Table -->
+    <div class="overflow-x-auto rounded-lg border border-wow-border">
+      <table class="w-full text-sm" id="dkp-table">
+        <thead class="bg-wow-panel">
+          <tr>
+            <th class="px-4 py-3 text-left text-yellow-600 font-semibold" data-col="name">
+              Name <span class="sort-icon">▲</span>
+            </th>
+            <th class="px-4 py-3 text-left text-yellow-600 font-semibold" data-col="rank">
+              Rank <span class="sort-icon">▲</span>
+            </th>
+            <th class="px-4 py-3 text-left text-yellow-600 font-semibold" data-col="class">
+              Class <span class="sort-icon">▲</span>
+            </th>
+            <th class="px-4 py-3 text-center text-yellow-600 font-semibold" data-col="level">
+              Lvl <span class="sort-icon">▲</span>
+            </th>
+            <th class="px-4 py-3 text-right text-yellow-600 font-semibold" data-col="dkp0">
+              DKP I <span class="sort-icon">▲</span>
+            </th>
+            <th class="px-4 py-3 text-right text-yellow-600 font-semibold" data-col="dkp1">
+              DKP II <span class="sort-icon">▲</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody id="dkp-body" class="divide-y divide-wow-border">
+          <tr><td colspan="6" class="text-center py-8 text-yellow-700">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="text-xs text-yellow-800 text-center mt-4">
+      Data synced from Turtle WoW officer notes · Updated via companion app
+    </p>
+  </div>
+
+  <script src="firebase-config.js"></script>
+  <script>
+    // -----------------------------------------------------------------------
+    // Firebase init
+    // -----------------------------------------------------------------------
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // -----------------------------------------------------------------------
+    // State
+    // -----------------------------------------------------------------------
+    let allMembers  = [];
+    let sortCol     = "dkp0";
+    let sortAsc     = false;
+
+    // -----------------------------------------------------------------------
+    // Load snapshot list
+    // -----------------------------------------------------------------------
+    async function loadSnapshotList() {
+      const sel = document.getElementById("snapshot-select");
+      sel.innerHTML = "";
+
+      const snap = await db.collection(COLLECTION_NAME)
+        .orderBy("scanTime", "desc")
+        .limit(50)
+        .get();
+
+      if (snap.empty) {
+        sel.innerHTML = '<option value="">No snapshots yet</option>';
+        return;
+      }
+
+      snap.forEach(doc => {
+        const data = doc.data();
+        const date = data.scanTime
+          ? new Date(data.scanTime * 1000).toLocaleString()
+          : doc.id;
+        const opt = document.createElement("option");
+        opt.value = doc.id;
+        opt.textContent = date;
+        sel.appendChild(opt);
+      });
+
+      // Load most recent by default
+      loadSnapshot(snap.docs[0].id);
+
+      sel.addEventListener("change", () => {
+        if (sel.value) loadSnapshot(sel.value);
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // Load a single snapshot
+    // -----------------------------------------------------------------------
+    async function loadSnapshot(docId) {
+      const doc = await db.collection(COLLECTION_NAME).doc(docId).get();
+      if (!doc.exists) return;
+      const data = doc.data();
+
+      // Last scan label
+      const scanDate = data.scanTime
+        ? new Date(data.scanTime * 1000).toLocaleString()
+        : "unknown";
+      document.getElementById("last-scan").textContent = "Last scan: " + scanDate;
+
+      // Build member list
+      allMembers = Object.values(data.members || {});
+
+      // Stats
+      const withDKP = allMembers.filter(m => m.dkp && m.dkp.length > 0).length;
+      document.getElementById("stat-total").textContent    = allMembers.length;
+      document.getElementById("stat-with-dkp").textContent = withDKP;
+
+      // Populate class filter
+      const classes = [...new Set(allMembers.map(m => m.class).filter(Boolean))].sort();
+      const cf = document.getElementById("class-filter");
+      cf.innerHTML = '<option value="">All classes</option>';
+      classes.forEach(c => {
+        const o = document.createElement("option");
+        o.value = c;
+        o.textContent = c;
+        cf.appendChild(o);
+      });
+
+      render();
+    }
+
+    // -----------------------------------------------------------------------
+    // Render table
+    // -----------------------------------------------------------------------
+    function render() {
+      const search  = document.getElementById("search").value.toLowerCase();
+      const classF  = document.getElementById("class-filter").value;
+
+      let rows = allMembers.filter(m => {
+        if (search && !m.name.toLowerCase().includes(search)) return false;
+        if (classF && m.class !== classF) return false;
+        return true;
+      });
+
+      // Sort
+      rows.sort((a, b) => {
+        let va, vb;
+        if (sortCol === "dkp0" || sortCol === "dkp1") {
+          const idx = sortCol === "dkp0" ? 0 : 1;
+          va = (a.dkp && a.dkp[idx] != null) ? a.dkp[idx] : -Infinity;
+          vb = (b.dkp && b.dkp[idx] != null) ? b.dkp[idx] : -Infinity;
+        } else if (sortCol === "level") {
+          va = a.level || 0;
+          vb = b.level || 0;
+        } else if (sortCol === "rank") {
+          va = a.rankIndex != null ? a.rankIndex : 99;
+          vb = b.rankIndex != null ? b.rankIndex : 99;
+        } else {
+          va = (a[sortCol] || "").toLowerCase();
+          vb = (b[sortCol] || "").toLowerCase();
+        }
+        if (va < vb) return sortAsc ? -1 : 1;
+        if (va > vb) return sortAsc ? 1 : -1;
+        return 0;
+      });
+
+      const tbody = document.getElementById("dkp-body");
+      if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-yellow-700">No members found.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = rows.map(m => {
+        const cls    = (m.class || "").toLowerCase().replace(/\s+/g, "");
+        const dkp0   = (m.dkp && m.dkp[0] != null) ? m.dkp[0] : "—";
+        const dkp1   = (m.dkp && m.dkp[1] != null) ? m.dkp[1] : "—";
+        const dkp0cls = typeof dkp0 === "number"
+          ? (dkp0 >= 0 ? "text-green-400" : "text-red-400") : "text-yellow-700";
+        const dkp1cls = typeof dkp1 === "number"
+          ? (dkp1 >= 0 ? "text-green-400" : "text-red-400") : "text-yellow-700";
+
+        return `
+          <tr class="hover:bg-wow-hover transition-colors">
+            <td class="px-4 py-2.5 font-medium">${escHtml(m.name)}</td>
+            <td class="px-4 py-2.5 text-yellow-500">${escHtml(m.rank || "")}</td>
+            <td class="px-4 py-2.5 cls-${cls}">${escHtml(m.class || "")}</td>
+            <td class="px-4 py-2.5 text-center text-yellow-400">${m.level || "—"}</td>
+            <td class="px-4 py-2.5 text-right font-mono ${dkp0cls}">${dkp0}</td>
+            <td class="px-4 py-2.5 text-right font-mono ${dkp1cls}">${dkp1}</td>
+          </tr>`;
+      }).join("");
+
+      // Update sort icons
+      document.querySelectorAll("#dkp-table th").forEach(th => {
+        const col = th.dataset.col;
+        th.classList.toggle("sorted", col === sortCol);
+        const icon = th.querySelector(".sort-icon");
+        if (col === sortCol) {
+          icon.textContent = sortAsc ? "▲" : "▼";
+        } else {
+          icon.textContent = "▲";
+        }
+      });
+    }
+
+    function escHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    // -----------------------------------------------------------------------
+    // Events
+    // -----------------------------------------------------------------------
+    document.querySelectorAll("#dkp-table th[data-col]").forEach(th => {
+      th.addEventListener("click", () => {
+        const col = th.dataset.col;
+        if (sortCol === col) sortAsc = !sortAsc;
+        else { sortCol = col; sortAsc = false; }
+        render();
+      });
+    });
+
+    document.getElementById("search").addEventListener("input", render);
+    document.getElementById("class-filter").addEventListener("change", render);
+
+    // -----------------------------------------------------------------------
+    // Boot
+    // -----------------------------------------------------------------------
+    loadSnapshotList();
+  </script>
+</body>
+</html>
