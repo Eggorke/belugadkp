@@ -1,9 +1,17 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Public read for the GitHub Pages dashboard
-    // Write is only allowed via the Admin SDK (service account) — not from the browser
     match /snapshots/{snapshotId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /logEvents/{eventId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /logImports/{importId} {
       allow read: if true;
       allow write: if false;
     }

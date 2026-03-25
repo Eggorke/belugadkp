@@ -12,3 +12,4 @@ const firebaseConfig = {
 
 // Name of the Firestore collection used by the companion app
 const COLLECTION_NAME = "snapshots";
+const LOG_COLLECTION_NAME = "logEvents";
